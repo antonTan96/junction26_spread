@@ -15,13 +15,19 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from spread.types import FeeStep, Order, PostAction, PriceRequest, StopRef
 
-# Economic & operational constants (per python/pricing_design.md)
-BASE_WAGE_PER_HOUR_CENTS: int = 1300     # €13.00 / hr (AKT benchmark midpoint)
+# Economic & operational constants (optimized via multi-seed sweep)
+BASE_WAGE_PER_HOUR_CENTS: int = 1250     # €12.50 / hr (AKT benchmark)
 MIN_GIG_FEE_CENTS: int = 1500            # €15.00 absolute minimum floor per gig
 TRANSIT_BASE_FARE_CENTS: int = 500       # €5.00 base public transit booking / connection
-TRANSIT_RATE_PER_KM_CENTS: int = 10      # €0.10 / km public transit return rate
+TRANSIT_RATE_PER_KM_CENTS: int = 8       # €0.08 / km public transit return rate
 EV_CHARGING_MINUTES: int = 40            # Handling time for EV charging stop
 TRANSFER_PLATES_MINUTES: int = 30        # Handling time for transfer plates
+
+# Tunable schedule & discount parameters (Config #3)
+PARAM_DISCOUNT: float = 0.82             # Opening discount factor relative to referenceFeeCents (0.82)
+PARAM_STEP_SLOPE: float = 0.05           # Step increase factor per interval (+5%)
+PARAM_URGENT_START: float = 1.35         # Urgent schedule initial multiplier
+PARAM_URGENT_SLOPE: float = 0.15         # Urgent step escalation (+15% per step)
 
 # Cached map lookup table: (from_place, to_place) -> (km, minutes)
 _CACHED_MAP_ROADS: Optional[Dict[Tuple[str, str], Tuple[float, int]]] = None
@@ -124,18 +130,18 @@ def build_fee_schedule(
         is_urgent = True
 
     if is_urgent:
-        # Urgent schedule: 6 steps spaced 25 min apart, starting at 1.35x and stepping up to 2.10x
+        # Urgent schedule: 6 steps spaced 25 min apart
         steps: List[FeeStep] = []
         prev_fee = 0
         for k in range(6):
             t_k = int(now + k * 25)
-            mult = 1.35 + 0.15 * k  # k=0: 1.35, k=1: 1.50, ..., k=5: 2.10
+            mult = PARAM_URGENT_START + PARAM_URGENT_SLOPE * k
             fee_k = max(prev_fee, max(1, int(round(base_fee * mult))))
             steps.append({"at": t_k, "feeCents": fee_k})
             prev_fee = fee_k
         return steps
 
-    # Normal schedule: gentle step-up (+6% per step) to avoid teaching drivers to wait
+    # Normal schedule: gentle step-up to avoid teaching drivers to wait
     if last_pickup_at is not None and last_pickup_at > now:
         time_to_urgent = max(0, (last_pickup_at - 180) - now)
         if time_to_urgent < 180:
@@ -152,7 +158,7 @@ def build_fee_schedule(
     prev_fee = 0
     for k in range(num_steps):
         t_k = int(now + k * delta_t)
-        mult = 1.0 + 0.06 * k
+        mult = 1.0 + PARAM_STEP_SLOPE * k
         fee_k = max(prev_fee, max(1, int(round(base_fee * mult))))
         steps.append({"at": t_k, "feeCents": fee_k})
         prev_fee = fee_k
@@ -261,7 +267,7 @@ def calculate_gig_fee_schedule(
         total_legs = max(1, len(order.get("legs", [])))
         scaled_ref_fee = round(ref_fee * (num_pickups / total_legs))
         # Protect against lowballing while respecting driver labor/transit baseline
-        discount = 1.0 if level == 1 else 0.90
+        discount = 1.0 if level == 1 else PARAM_DISCOUNT
         base_fee = max(driver_cost, int(round(discount * scaled_ref_fee)))
     else:
         base_fee = driver_cost
