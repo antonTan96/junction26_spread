@@ -16,3 +16,4 @@ SEEDS="${2:-spread-1,spread-2,spread-3}"
 
 cd python
 python3 benchmark.py --level "$LEVEL" --seeds "$SEEDS" --verbose --output "../runs/benchmark_level_${LEVEL}.json"
+

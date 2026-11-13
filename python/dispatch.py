@@ -10,8 +10,9 @@ import contextlib
 import re
 import sys
 import time
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, Union
 
+from pricing import calculate_gig_fee_schedule
 from spread.client import Client, SpreadError, Unreachable, World
 from spread.types import (
     Action, ActionResult, Audience, DeskEvent, DeskEventKind, DeskSnapshot, FeeStep, Gig, Note, Order, PostAction, PriceRequest,
@@ -129,7 +130,7 @@ class Desk:
             return
         # One of its windows has ended, perhaps at a site's closing time before the window's own end: post without its own stop windows.
         stops = without_windows(action["stops"], float("inf"))
-        self.outbox.append({**action, "stops": stops, "schedule": self.fees_for(order, pickups(action))})
+        self.outbox.append({**action, "stops": stops, "schedule": self.fees_for(order, stops)})
 
     def raise_fees(self, order_id: str) -> None:
         """From the order's deadline warning on, its gigs that no driver holds go at the steep fees."""
@@ -140,12 +141,30 @@ class Desk:
         self.send_post_of(order_id)
         for gig_id in self.gigs_of(order_id):
             if gig_id not in self.booked:
-                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": self.fees_for(order, pickups(self.posts[gig_id]))})
+                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": self.fees_for(order, self.posts[gig_id]["stops"])})
 
-    def fees_for(self, order: Order, cars: int) -> list[FeeStep]:
-        """The fees for some of the order's cars from now: rising, or steep once its deadline warning has come."""
-        fee = self.requests[order["id"]]["referenceFeeCents"] * cars / len(order["legs"])
-        return steep(self.now, fee, self.level) if order["id"] in self.urgent else rising(self.now, fee, self.level)
+    def fees_for(self, order: Order, stops_or_cars: Union[list[StopRef], int] = 1) -> list[FeeStep]:
+        """The fees for the order's gig: calculated using Finnish driver cost model and fee schedule."""
+        request = self.requests.get(order["id"])
+        is_urgent = order["id"] in self.urgent
+        if isinstance(stops_or_cars, list):
+            stops = stops_or_cars
+        else:
+            stops = [
+                {"orderId": order["id"], "leg": leg, "kind": "pickup"}
+                for leg in range(min(stops_or_cars, len(order["legs"])))
+            ] + [
+                {"orderId": order["id"], "leg": leg, "kind": "delivery"}
+                for leg in range(min(stops_or_cars, len(order["legs"])))
+            ]
+        return calculate_gig_fee_schedule(
+            order=order,
+            request=request,
+            action_or_stops=stops,
+            now=self.now,
+            level=self.level,
+            is_urgent=is_urgent,
+        )
 
     def retry(self, order_id: str, leg: int, reason: str) -> None:
         if order_id in self.orders:
@@ -159,7 +178,7 @@ class Desk:
         # A premium car needs an experienced driver: the fine is €150 a car.
         audience: Audience = {"experienced": any(leg["car"]["premium"] for leg in order["legs"]), "manualLicence": retry.manual_licence}
         stops = without_windows(stops_for(order, legs, self.requests[order["id"]]["note"], retry), self.now)
-        self.outbox.append({"type": "post", "stops": stops, "audience": audience, "schedule": self.fees_for(order, len(legs))})
+        self.outbox.append({"type": "post", "stops": stops, "audience": audience, "schedule": self.fees_for(order, stops)})
         if len(legs) == 1:
             return
         # A trade-in over the 12-hour limit for a gig with two cars goes as one gig per car.

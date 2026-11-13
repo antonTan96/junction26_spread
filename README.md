@@ -127,3 +127,4 @@ python3 benchmark.py --level 8 --seeds spread-1,spread-2,spread-3 --output ../ru
 - **Run Viewer**: Inspect any played week on an interactive map at `https://spread.bahnexpress.com/viewer/`
 - **Team Dashboard**: View practice round scores, final status, and submission hash at `https://spread.bahnexpress.com/team`
 - **Leaderboard**: Live ranking at `https://spread.bahnexpress.com/leaderboard`
+

@@ -28,3 +28,4 @@ else
   cd python
   python3 dispatch.py --level "$LEVEL" --seed "$SEED"
 fi
+
