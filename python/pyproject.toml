@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spread-agent"
+version = "0.1.0"
+description = "Autonomous dispatch system for Bahn Spread challenge (Junction 2026)"
+readme = "../README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+analysis = [
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "networkx>=3.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0"
+]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.1.0"
+]
+
+[project.scripts]
+spread-dispatch = "dispatch:main"
+spread-benchmark = "benchmark:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["spread*"]
